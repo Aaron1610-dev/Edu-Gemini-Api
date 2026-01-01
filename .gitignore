@@ -1,0 +1,22 @@
+# venv
+.env/
+
+# output artifacts
+Output/
+
+# secrets
+config.env
+
+# key rotation state (nếu bạn có file này)
+.gemini_key_index
+Output/.gemini_key_index
+
+# python cache
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+
+# IDE (PyCharm/IntelliJ)
+.idea/
