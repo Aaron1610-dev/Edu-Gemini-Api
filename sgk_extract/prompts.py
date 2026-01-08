@@ -74,40 +74,41 @@ FORMAT:
 
 def build_chunk_prompt_start_head(total_pages: int) -> str:
     return f"""
-Bạn đang đọc 1 file PDF chỉ chứa DUY NHẤT 1 BÀI (LESSON).
+Bạn đang đọc 1 file PDF chỉ chứa DUY NHẤT 1 BÀI (LESSON) (PDF scan).
 
 MỤC TIÊU:
-Trả về list_chunk là các MỤC CHÍNH của bài theo trang PDF của CHÍNH FILE LESSON này.
+Trả về list_chunk là các MỤC CHÍNH của bài theo trang PDF của CHÍNH FILE này.
 
-CHỈ tạo chunk khi tìm thấy "TIÊU ĐỀ MỤC CHÍNH" hợp lệ.
+CHỈ tạo chunk khi THẤY RÕ "TIÊU ĐỀ MỤC CHÍNH" hợp lệ.
 Nếu không chắc chắn 100% => BỎ QUA (không bịa).
 
-ĐỊNH NGHĨA "TIÊU ĐỀ MỤC CHÍNH" (PHẢI ĐÚNG):
-Một tiêu đề mục chính hợp lệ phải thỏa ĐỒNG THỜI:
+ĐỊNH NGHĨA "TIÊU ĐỀ MỤC CHÍNH" HỢP LỆ:
+- Có mẫu "<số>." ở ĐẦU DÒNG (ví dụ "1.", "2.", "3.", ...)
+- Phần chữ ngay sau "<số>." là TIÊU ĐỀ IN HOA TOÀN BỘ (không có chữ thường)
+- Không thuộc/không nằm trong các phần: "NHIỆM VỤ", "CÂU HỎI", "BÀI TẬP", "LUYỆN TẬP", "VẬN DỤNG", "HƯỚNG DẪN", "BƯỚC"...
+- Không phải câu mệnh lệnh/thao tác (NHÁY, CHỌN, MỞ, THỰC HIỆN, HÃY, EM HÃY...)
 
-1) Dòng tiêu đề bắt đầu bằng mẫu: "<số>." (ví dụ "1.", "2.", "3.", ...) ở ĐẦU DÒNG.
-2) Phần nội dung sau dấu chấm PHẢI là TIÊU ĐỀ (KHÔNG phải câu):
-   - Viết IN HOA TOÀN BỘ (không được có chữ thường).
-   - Trông giống một tiêu đề (thường chữ lớn hơn nội dung, có khoảng cách trước/sau).
-3) LOẠI TRỪ TUYỆT ĐỐI (KHÔNG BAO GIỜ coi là mục chính), dù có "1." "2.":
-   - Dòng thuộc danh sách nhiệm vụ/câu hỏi/bài tập/liệt kê trong đoạn văn.
-   - Các dòng kiểu: "1. Em hãy ...", "2. Hãy ...", "1. Nháy ...", "2. Chọn ...", "1. Thực hiện ..."
-     (đây là câu hướng dẫn -> thường có chữ thường -> không phải tiêu đề mục chính).
-   - Dòng có ngữ khí mệnh lệnh/hướng dẫn (NHÁY, CHỌN, MỞ, THỰC HIỆN, HÃY, EM HÃY...) hoặc là câu dài.
-   - Nếu tiêu đề nằm trong khung "NHIỆM VỤ", "CÂU HỎI", "BÀI TẬP", "HƯỚNG DẪN", "BƯỚC" thì KHÔNG lấy.
+RẤT QUAN TRỌNG (CHỐNG BỊA):
+- Nếu KHÔNG nhìn thấy mục "1." thật sự (ở đầu dòng) => trả list_chunk rỗng [].
+- TUYỆT ĐỐI không suy ra "1." chỉ vì thấy chữ IN HOA.
 
-OUTPUT MỖI CHUNK:
+OUTPUT MỖI CHUNK (BẮT BUỘC ĐỦ 3 TRƯỜNG):
 - start: SỐ TRANG PDF (1-based) nơi tiêu đề mục chính xuất hiện lần đầu.
 - content_head: true/false
-  - true  nếu trên CÙNG trang start, phía TRÊN tiêu đề còn có nội dung thuộc mục trước
-          (đoạn văn/hình/bảng/câu hỏi/bài tập/tổng kết...). KHÔNG tính header/footer/số trang.
-  - false nếu phía trên chỉ có header/footer/số trang hoặc tiêu đề nằm ngay đầu trang nội dung.
+- heading: CHỈ CHỨA SỐ MỤC dạng "1." / "2." / "3." ... (không kèm chữ).
+- title: CHỈ PHẦN CHỮ SAU "<số>.", GIỮ NGUYÊN IN HOA.
+  - Không được có chữ thường.
+  - Nếu tiêu đề xuống dòng, nối lại bằng 1 dấu cách.
+
+content_head:
+- true  nếu trên CÙNG trang start, phía TRÊN tiêu đề còn có nội dung thuộc mục trước
+        (đoạn văn/hình/bảng/câu hỏi/bài tập/tổng kết...). KHÔNG tính header/footer/số trang.
+- false nếu phía trên chỉ có header/footer/số trang hoặc tiêu đề nằm ngay đầu trang nội dung.
 
 RÀNG BUỘC:
-- chunk_01 luôn content_head = false.
-- start tăng dần theo thứ tự xuất hiện.
+- heading phải tăng dần theo thứ tự xuất hiện (1., 2., 3., ...).
 - 1 <= start <= {total_pages}.
-- Nếu bài KHÔNG có mục chính hợp lệ theo định nghĩa => trả list_chunk rỗng [].
+- Nếu bài KHÔNG có mục chính hợp lệ => trả list_chunk rỗng [].
 
 YÊU CẦU OUTPUT:
 - Chỉ JSON thuần, KHÔNG giải thích, KHÔNG markdown.
@@ -115,8 +116,8 @@ YÊU CẦU OUTPUT:
 FORMAT:
 {{
   "list_chunk": [
-    {{"chunk_01": {{"start": 1, "content_head": false}}}},
-    {{"chunk_02": {{ "start": 3, "content_head": true}}}}
+    {{"chunk_01": {{"start": 1, "content_head": false, "heading": "1.", "title": "..."}}}},
+    {{"chunk_02": {{"start": 3, "content_head": true,  "heading": "2.", "title": "..."}}}}
   ]
 }}
 """

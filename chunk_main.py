@@ -7,7 +7,7 @@ from sgk_extract.chunk_pipeline import run_extract_and_split_chunks_for_book
 def main():
     key_manager = get_key_manager("config.env")
 
-    book_stem = "Tin-hoc-11-ket-noi-tri-thuc"
+    book_stem = "Tin-hoc-10-ket-noi-tri-thuc"
     book_dir = Path("Output") / book_stem
 
     summary = run_extract_and_split_chunks_for_book(
