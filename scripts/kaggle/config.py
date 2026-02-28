@@ -1,27 +1,24 @@
-# scripts/kaggle_config.py
+# scripts/kaggle/config.py
 from __future__ import annotations
-from dataclasses import dataclass
 from pathlib import Path
 import os
 
 def find_project_root() -> Path:
-    # scripts/ nằm ngay dưới project root
-    return Path(__file__).resolve().parents[1]
+    # .../Gemini-Api/scripts/kaggle/config.py -> parents[2] = .../Gemini-Api
+    return Path(__file__).resolve().parents[2]
 
 PROJECT_ROOT = find_project_root()
 
 # ==== Kaggle IDs ====
-KERNEL_REF  = os.getenv("KAGGLE_KERNEL_REF", "dat261303/debug-cutlines-auto")
-DATASET_ID  = os.getenv("KAGGLE_DATASET_ID", "dat261303/kaggle-pack")
+KERNEL_REF = os.getenv("KAGGLE_KERNEL_REF", "dat261303/debug-cutlines-auto")
+DATASET_ID = os.getenv("KAGGLE_DATASET_ID", "dat261303/kaggle-pack")
+
+# kernel slug để đặt folder kernel + output gọn
+KERNEL_SLUG = KERNEL_REF.split("/", 1)[1] if "/" in KERNEL_REF else KERNEL_REF
 
 # ==== In-project paths ====
-SCRIPTS_DIR = PROJECT_ROOT / "scripts"
-
-KERNEL_DIR  = SCRIPTS_DIR / "kaggle_kernel_cutlines"
-PACK_DIR    = PROJECT_ROOT / "kaggle_pack"  # bạn đang dùng sẵn
-
-# kernel slug để đặt folder output gọn
-KERNEL_SLUG = KERNEL_REF.split("/", 1)[1] if "/" in KERNEL_REF else KERNEL_REF
+KERNEL_DIR = PROJECT_ROOT / "scripts" / "kaggle" / "kernels" / KERNEL_SLUG
+PACK_DIR   = PROJECT_ROOT / "kaggle_pack"
 
 KAGGLE_OUT_ROOT = PROJECT_ROOT / "Output" / "_kaggle_outputs" / KERNEL_SLUG
 DL_DIR          = KAGGLE_OUT_ROOT / "downloads"

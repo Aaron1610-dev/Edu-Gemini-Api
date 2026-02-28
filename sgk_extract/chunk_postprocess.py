@@ -35,8 +35,18 @@ EXTRACT_HEADING_KEY = "extract_heading"   # ✅ key mới để skip
 FORCE_HEADING_NUMS = {1}                  # ✅ content_head=False nhưng heading_num=1 vẫn xử lý
 BOT_ONLY_HEADING_NUMS = {1}               # ✅ heading_num=1 chỉ update page[0] bằng bot
 MIN_MATCH_REQUIRED = 3  # hoặc 4 tuỳ bạn muốn chặt cỡ nào
-PDF_UPDATE_DISABLED = os.getenv("DISABLE_PDF_UPDATE", "0") == "1"
+PDF_UPDATE_DISABLED = False
 
+# --- SOFT CUT ---
+ALLOW_WEAK_CUT = True
+WEAK_MIN_LCS   = 2
+WEAK_COV_EXP   = 0.65   # cover expected >= 65%
+WEAK_COV_OBS   = 0.80   # obs “khá sạch”
+WEAK_MIN_OBS   = 3      # obs quá ngắn thì không tin
+WEAK_ALLOWED_MODES = {"prefix_line", "heading_left_title", "same_line", "merge_next"}
+
+# --- FORCE CUT WHEN HEADING EVIDENCE STRONG ---
+FORCE_CUT_ON_MODES = {"prefix_line"}   # bạn có thể thêm "heading_left_title" nếu muốn
 # ============================
 # JSON helpers
 # ============================
@@ -956,46 +966,106 @@ def process_one_chunk(
         print(f"[FAIL] content_head nhưng không có heading evidence => skip cut: {chunk_json_path.name}")
         return None
 
-    min_req = min(MIN_MATCH_REQUIRED, len(expected_letters))
+    nexp = len(expected_letters)
+    # min_req "cứng" để gọi là chắc
+    if nexp <= 2:
+        min_req = 1
+    elif nexp == 3:
+        min_req = 2
+    else:
+        min_req = min(MIN_MATCH_REQUIRED, nexp)
+
+    weak_cut = False
+    weak_reason = None
+
     if matched < min_req:
-        # FAIL vẫn lưu debug để soi
-        y_line = int(round(ln["y0"] - OFFSET))
-        y_line = max(0, min(y_line, img.shape[0] - 1))
+        # ---- tính LCS để xem có phải OCR rụng chữ nhưng vẫn đúng line không ----
+        def _lcs_len(a, b):
+            n, m = len(a), len(b)
+            dp = [0] * (m + 1)
+            for i in range(1, n + 1):
+                prev = 0
+                ai = a[i - 1]
+                for j in range(1, m + 1):
+                    cur = dp[j]
+                    if ai == b[j - 1]:
+                        dp[j] = prev + 1
+                    else:
+                        dp[j] = dp[j] if dp[j] >= dp[j - 1] else dp[j - 1]
+                    prev = cur
+            return dp[m]
 
-        stem = chunk_json_path.stem
-        out_dir.mkdir(parents=True, exist_ok=True)
+        lcs = _lcs_len(expected_letters, obs)
+        cov_obs = lcs / max(1, len(obs))
+        cov_exp = lcs / max(1, len(expected_letters))
 
-        out_debug_png = out_dir / f"{stem}_cutline.png"
-        out_cut_json  = out_dir / f"{stem}_cutline.json"
+        begin_ok = (nexp == 0) or (expected_letters[0] in obs[:3])
+        weak_min_lcs = 1 if nexp <= 2 else WEAK_MIN_LCS
 
-        label = f"{heading} | {best_mode} | match {matched}/{len(expected_letters)} | obs={''.join(obs[:12])}"
-        draw_debug(img, ln, y_line, out_debug_png, label=label)
+        allow_weak = (
+            ALLOW_WEAK_CUT
+            and (best_mode in WEAK_ALLOWED_MODES)
+            and begin_ok
+            and (lcs >= weak_min_lcs)
+            and (cov_exp >= WEAK_COV_EXP)
+            and (cov_obs >= WEAK_COV_OBS)
+            and (len(obs) >= WEAK_MIN_OBS or nexp <= 3)
+        )
 
-        payload = {
-            "failed": True,
-            "fail_reason": f"low_match_{matched}_{len(expected_letters)}",
-            "chunk_json": str(chunk_json_path.resolve()),
-            "chunk_pdf": str(chunk_pdf_path.resolve()),
-            "heading": heading,
-            "heading_num": int(heading_num),
-            "title": title,
-            "expected_letters": expected_letters,
-            "expected_initials": expected_letters,
-            "matched_prefix": int(matched),
-            "prefix_hits": int(prefix_match_count(obs, expected_letters)),
-            "observed_initials": obs,
-            "best_mode": best_mode,
-            "line_bbox": {"x0": ln["x0"], "y0": ln["y0"], "x1": ln["x1"], "y1": ln["y1"]},
-            "y_line": int(y_line),
-            "dpi": int(DPI),
-            "offset_px": int(OFFSET),
-            "image_size": {"w": int(img.shape[1]), "h": int(img.shape[0])},
-            "debug_png": str(out_debug_png),
-        }
-        write_json_atomic(out_cut_json, payload)
+        force_cut = (best_mode in FORCE_CUT_ON_MODES)
 
-        print(f"[FAIL] Low match {matched}/{len(expected_letters)} => saved debug:", out_debug_png)
-        return None
+        if (not allow_weak) and (not force_cut):
+            # HARD FAIL như cũ
+            y_line = int(round(ln["y0"] - OFFSET))
+            y_line = max(0, min(y_line, img.shape[0] - 1))
+
+            stem = chunk_json_path.stem
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            out_debug_png = out_dir / f"{stem}_cutline.png"
+            out_cut_json  = out_dir / f"{stem}_cutline.json"
+
+            label = f"{heading} | {best_mode} | match {matched}/{len(expected_letters)} | obs={''.join(obs[:12])}"
+            draw_debug(img, ln, y_line, out_debug_png, label=label)
+
+            payload = {
+                "failed": True,
+                "fail_reason": f"low_match_{matched}_{len(expected_letters)}",
+                "chunk_json": str(chunk_json_path.resolve()),
+                "chunk_pdf": str(chunk_pdf_path.resolve()),
+                "heading": heading,
+                "heading_num": int(heading_num),
+                "title": title,
+                "expected_letters": expected_letters,
+                "matched_prefix": int(matched),
+                "observed_initials": obs,
+                "best_mode": best_mode,
+                "line_bbox": {"x0": ln["x0"], "y0": ln["y0"], "x1": ln["x1"], "y1": ln["y1"]},
+                "y_line": int(y_line),
+                "dpi": int(DPI),
+                "offset_px": int(OFFSET),
+                "image_size": {"w": int(img.shape[1]), "h": int(img.shape[0])},
+                "debug_png": str(out_debug_png),
+                "lcs": int(lcs),
+                "cov_obs": float(cov_obs),
+                "cov_exp": float(cov_exp),
+            }
+            write_json_atomic(out_cut_json, payload)
+
+            print(f"[FAIL] Low match {matched}/{len(expected_letters)} => saved debug:", out_debug_png)
+            return None
+
+        # allow_weak => weak_cut theo tiêu chí LCS/coverage
+        if allow_weak:
+            weak_cut = True
+            weak_reason = f"weak_cut_low_match_{matched}_{nexp}_lcs_{lcs}_covExp_{cov_exp:.2f}_covObs_{cov_obs:.2f}"
+            print("[WARN]", weak_reason, "=> still cutting:", chunk_json_path.name)
+
+        # force_cut => match thấp nhưng vẫn tin vì mode mạnh (prefix_line)
+        elif force_cut:
+            weak_cut = True
+            weak_reason = f"force_cut_mode_{best_mode}_low_match_{matched}_{nexp}"
+            print("[WARN]", weak_reason, "=> still cutting + updating:", chunk_json_path.name)
 
     y_line = int(round(ln["y0"] - OFFSET))
     y_line = max(0, min(y_line, img.shape[0] - 1))
@@ -1011,6 +1081,7 @@ def process_one_chunk(
     label = f"{heading} | {best_mode} | match {matched}/{len(expected_letters)} | obs={''.join(obs[:12])}"
 
     draw_debug(img, ln, y_line, out_debug_png, label=label)
+    pdf_update_allowed = (not PDF_UPDATE_DISABLED)
 
     # ✅ nếu content_head=True => giữ y nguyên (top+bot + update prev/current)
     if is_content_head:
@@ -1018,7 +1089,7 @@ def process_one_chunk(
 
         pdf_update: Dict[str, Any] = {"skipped": True, "reason": "disabled or not available", "split_info": split_info}
 
-        if (not PDF_UPDATE_DISABLED) and split_info.get("top_saved") and split_info.get("bot_saved"):
+        if pdf_update_allowed and split_info.get("top_saved") and split_info.get("bot_saved"):
             pdf_update = update_pdfs_for_content_head(
                 cur_chunk_pdf=chunk_pdf_path,
                 cur_chunk_stem=stem,
@@ -1028,8 +1099,8 @@ def process_one_chunk(
                 make_backup=MAKE_PDF_BACKUP,
             )
         else:
-            if PDF_UPDATE_DISABLED:
-                pdf_update = {"skipped": True, "reason": "DISABLE_PDF_UPDATE=1", "split_info": split_info}
+            reason = "DISABLE_PDF_UPDATE=1" if PDF_UPDATE_DISABLED else "split_missing"
+            pdf_update = {"skipped": True, "reason": reason, "split_info": split_info}
 
     # ✅ nếu content_head=False nhưng heading_num=1 => bot-only + replace page[0] của chính pdf
     else:
@@ -1038,15 +1109,15 @@ def process_one_chunk(
 
         pdf_update: Dict[str, Any] = {"skipped": True, "reason": "disabled or not available", "split_info": split_info}
 
-        if (not PDF_UPDATE_DISABLED) and split_info.get("bot_saved"):
+        if pdf_update_allowed and split_info.get("bot_saved"):
             pdf_update = update_pdf_page0_with_bot_only(
                 cur_chunk_pdf=chunk_pdf_path,
                 bot_png=out_bot_png,
                 make_backup=MAKE_PDF_BACKUP,
             )
         else:
-            if PDF_UPDATE_DISABLED:
-                pdf_update = {"skipped": True, "reason": "DISABLE_PDF_UPDATE=1", "split_info": split_info}
+            reason = "weak_cut" if weak_cut else "DISABLE_PDF_UPDATE=1"
+            pdf_update = {"skipped": True, "reason": reason, "split_info": split_info}
 
     prefix_hits = prefix_match_count(obs, expected_letters)
     payload = {
@@ -1070,6 +1141,14 @@ def process_one_chunk(
         "run_mode": "content_head" if is_content_head else "heading_bot_only",  # ✅ giữ cái mode tổng quát cũ nếu bạn muốn
         "expected_initials": expected_letters,
         "prefix_hits": int(prefix_hits),
+        "weak_cut": bool(weak_cut),
+        "weak_reason": weak_reason,
+        # failed chỉ dành cho hard-fail (return None), nên ở đây để False
+        "failed": False,
+        "fail_reason": None,
+        "soft_fail": bool(weak_cut),
+        "soft_fail_reason": weak_reason,
+        "force_cut": bool(best_mode in FORCE_CUT_ON_MODES),
     }
     write_json_atomic(out_cut_json, payload)
     return payload

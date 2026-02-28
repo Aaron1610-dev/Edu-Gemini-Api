@@ -1,3 +1,4 @@
+#scripst/kaggle/kernels/debug-cutlines-auto/script.py
 import os, sys, zipfile, shutil, subprocess
 from pathlib import Path
 
@@ -150,12 +151,29 @@ import chunk_postprocess as cp
 importlib.reload(cp)
 
 print("cp loaded from:", cp.__file__)
-# ✅ ép chạy lại toàn bộ dù đã mark extract/extract_heading
-cp.FORCE_REPROCESS = True
+# ✅ mặc định KHÔNG reprocess toàn bộ (chỉ xử lí cái chưa xử lí)
+cp.FORCE_REPROCESS = os.getenv("FORCE_REPROCESS", "0") == "1"
 print("FORCE_REPROCESS =", cp.FORCE_REPROCESS)
 
+# ✅ book_stem lấy từ dataset marker nếu có (support cả nested kaggle_pack/)
+cands = [
+    WORK / "book_stem.txt",
+    WORK / "kaggle_pack" / "book_stem.txt",
+]
 
-book_stem = "Tin-hoc-10-ket-noi-tri-thuc"
+book_stem = None
+for p in cands:
+    if p.exists():
+        book_stem = p.read_text(encoding="utf-8").strip()
+        print("BOOK_STEM loaded from:", p)
+        break
+
+if not book_stem:
+    book_stem = os.getenv("BOOK_STEM", "").strip() or "Tin-hoc-10-ket-noi-tri-thuc"
+    print("BOOK_STEM fallback =", book_stem)
+else:
+    print("BOOK_STEM =", book_stem)
+
 book_dir = WORK / "Output" / book_stem
 chunk_root = book_dir / "Chunk"
 assert chunk_root.exists(), f"Missing chunk_root: {chunk_root}"

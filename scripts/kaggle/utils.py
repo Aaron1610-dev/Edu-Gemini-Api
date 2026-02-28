@@ -1,4 +1,4 @@
-# scripts/kaggle_utils.py
+#scripst/kaggle/utils.py
 from __future__ import annotations
 
 import logging
@@ -6,15 +6,21 @@ import shutil
 import subprocess
 import time
 import zipfile
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 log = logging.getLogger(__name__)
 
-
-def run_cmd(cmd: list[str], *, cwd: Optional[Path] = None) -> str:
+def run_cmd(cmd: list[str], *, cwd: Optional[Path] = None, stream: bool = False) -> str:
     log.info(">>> %s", " ".join(map(str, cmd)))
+    if stream:
+        # ✅ hiện output trực tiếp (progress, log của kaggle cli)
+        subprocess.run(
+            list(map(str, cmd)),
+            cwd=str(cwd) if cwd else None,
+            check=True,
+        )
+        return ""
     p = subprocess.run(
         list(map(str, cmd)),
         cwd=str(cwd) if cwd else None,
@@ -26,7 +32,6 @@ def run_cmd(cmd: list[str], *, cwd: Optional[Path] = None) -> str:
     if p.stdout:
         log.debug(p.stdout.rstrip())
     return p.stdout or ""
-
 
 def ensure_kaggle_cli() -> None:
     out = run_cmd(["kaggle", "--version"])
@@ -62,29 +67,37 @@ def push_kernel(kernel_dir: Path, kernel_ref: str) -> None:
     wait_kernel_complete(kernel_ref)
 
 
-def download_kernel_output(kernel_ref: str, dl_dir: Path, force: bool = True) -> None:
+def download_kernel_output(kernel_ref: str, dl_dir: Path, force: bool = False) -> None:
     dl_dir.mkdir(parents=True, exist_ok=True)
     cmd = ["kaggle", "kernels", "output", kernel_ref, "-p", str(dl_dir)]
     if force:
         cmd.append("--force")
-    run_cmd(cmd)
 
+    # ✅ stream để thấy tiến trình
+    run_cmd(cmd, stream=True)
 
 # ----------------------
 # Dataset packaging + version
 # ----------------------
-def build_kaggle_pack(pack_dir: Path, *, book_stem: str, project_root: Path) -> None:
+def build_kaggle_pack(pack_dir: Path, *, book_stem: str, project_root: Path, dataset_id: str) -> None:
     """
     Rebuild kaggle_pack/ from scratch:
       kaggle_pack/
         dataset-metadata.json
-        sgk_extract/chunk_postprocess.py (nếu có)
-        Output/<book_stem>/... (copy)
+        book_stem.txt                  ✅ để kernel đọc book cần xử lí
+        sgk_extract/chunk_postprocess.py
+        Output/<book_stem>/...
     """
     if pack_dir.exists():
         shutil.rmtree(pack_dir)
+    pack_dir.mkdir(parents=True, exist_ok=True)
+
     (pack_dir / "sgk_extract").mkdir(parents=True, exist_ok=True)
     (pack_dir / "Output").mkdir(parents=True, exist_ok=True)
+
+    # ✅ write book_stem marker for kernel
+    (pack_dir / "book_stem.txt").write_text(book_stem, encoding="utf-8")
+    log.info("Packed book_stem marker: %s", pack_dir / "book_stem.txt")
 
     # copy code (đảm bảo kernel import cp là bản mới)
     src_code = project_root / "sgk_extract" / "chunk_postprocess.py"
@@ -102,19 +115,18 @@ def build_kaggle_pack(pack_dir: Path, *, book_stem: str, project_root: Path) -> 
     shutil.copytree(src_book, dst_book, dirs_exist_ok=True)
     log.info("Packed book Output: %s", src_book)
 
-    # dataset-metadata.json
+    # ✅ always write dataset-metadata.json (vì pack_dir bị recreate)
     meta = pack_dir / "dataset-metadata.json"
-    if not meta.exists():
-        meta.write_text(
-            '{\n'
-            '  "title": "kaggle-pack",\n'
-            '  "id": "dat261303/kaggle-pack",\n'
-            '  "licenses": [{"name": "CC0-1.0"}]\n'
-            '}\n',
-            encoding="utf-8",
-        )
-        log.info("Created %s", meta)
-
+    title = dataset_id.split("/", 1)[1] if "/" in dataset_id else dataset_id
+    meta.write_text(
+        "{\n"
+        f'  "title": "{title}",\n'
+        f'  "id": "{dataset_id}",\n'
+        '  "licenses": [{"name": "CC0-1.0"}]\n'
+        "}\n",
+        encoding="utf-8",
+    )
+    log.info("Wrote %s", meta)
 
 def push_dataset_version(pack_dir: Path, *, message: str, dir_mode: str = "zip") -> None:
     """
