@@ -1,10 +1,12 @@
+# scripts/keyword_extract_one.py
+
 import argparse
 import json
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Union
 
-from connect import get_key_manager
+from .connect import get_key_manager
 from sgk_extract.gemini_runner import extract_structure_from_pdf
 
 

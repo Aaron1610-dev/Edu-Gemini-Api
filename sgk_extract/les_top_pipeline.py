@@ -1,4 +1,4 @@
-# sgk_extract/pipeline.py
+# sgk_extract/les_top_pipeline.py
 from __future__ import annotations
 
 from typing import Any, Dict

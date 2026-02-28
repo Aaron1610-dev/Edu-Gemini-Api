@@ -117,21 +117,11 @@ def run_extract_and_split_chunks_for_book(
     model: str = "gemini-2.5-flash",
     resume: bool = True,
 ) -> Dict[str, Any]:
-    """
-    Reads:
-      Output/<book_stem>/Lesson/*.pdf
 
-    Writes:
-      Output/<book_stem>/Chunk/<lesson_stem>_chunk_01.pdf ...
-      Output/<book_stem>/ChunkJson/<lesson_stem>_chunk_01.json ...
-    """
     book_dir = Path(book_dir)
     lesson_dir = book_dir / "Lesson"
-    chunk_dir = book_dir / "Chunk"
-    chunk_json_dir = book_dir / "ChunkJson"
-
-    chunk_dir.mkdir(parents=True, exist_ok=True)
-    chunk_json_dir.mkdir(parents=True, exist_ok=True)
+    chunk_root = book_dir / "Chunk"          # <-- giữ tên Chunk
+    chunk_root.mkdir(parents=True, exist_ok=True)
 
     if not lesson_dir.exists():
         raise RuntimeError(f"Không thấy thư mục Lesson: {lesson_dir}")
@@ -144,23 +134,22 @@ def run_extract_and_split_chunks_for_book(
         "book_dir": str(book_dir),
         "lesson_count": len(lesson_pdfs),
         "chunk_pdf_files": [],
-        "chunk_json_files": [],
+        "chunk_meta_files": [],      # <-- đổi tên rõ nghĩa
         "skipped_lessons": [],
     }
 
     for lesson_pdf in lesson_pdfs:
         lesson_stem = lesson_pdf.stem
 
-        # resume: nếu đã có chunk_01 thì skip
+        # resume: nếu đã có chunk pdf trong Chunk/<lesson_stem>/ thì skip
         if resume:
-            exists_any = any(chunk_dir.glob(f"{lesson_stem}_chunk_*.pdf"))
-            if exists_any:
+            lesson_chunk_dir = chunk_root / lesson_stem
+            if lesson_chunk_dir.exists() and any(lesson_chunk_dir.rglob("*.pdf")):
                 summary["skipped_lessons"].append({"lesson": str(lesson_pdf), "reason": "Đã có chunk pdf, skip"})
                 continue
 
         try:
             total_pages = len(PdfReader(str(lesson_pdf)).pages)
-
             prompt = build_chunk_prompt_start_head(total_pages=total_pages)
 
             raw: Dict[str, Any] = extract_structure_from_pdf(
@@ -171,48 +160,70 @@ def run_extract_and_split_chunks_for_book(
             )
 
             list_chunk_raw = raw.get("list_chunk")
-
             items: List[Tuple[int, bool, str, str]] = []
-
             if isinstance(list_chunk_raw, list) and list_chunk_raw:
                 items = _flatten_start_head(list_chunk_raw)
 
-            # tính list_chunk có end
             list_chunk_computed = _compute_chunks_from_start_head(items, total_pages)
 
-            # cắt pdf
-            ranges = _to_ranges(list_chunk_computed)
-            if not ranges:
-                summary["skipped_lessons"].append({"lesson": str(lesson_pdf), "reason": "Không tạo được chunk range"})
+            if not list_chunk_computed:
+                summary["skipped_lessons"].append({"lesson": str(lesson_pdf), "reason": "Không tạo được list_chunk_computed"})
                 continue
 
-            paths = split_pdf_by_ranges(
-                src_pdf=str(lesson_pdf),
-                ranges=ranges,
-                out_dir=chunk_dir,
-                pdf_stem=lesson_stem,
-            )
-            summary["chunk_pdf_files"].extend([str(p) for p in paths])
+            # folder: Chunk/<lesson_stem>/chunk_XX/
+            lesson_chunk_dir = chunk_root / lesson_stem
+            lesson_chunk_dir.mkdir(parents=True, exist_ok=True)
 
-            # xuất JSON cho từng chunk (mỗi chunk 1 file)
+            # ---- CHỖ THAY ĐỔI: mỗi chunk -> 1 folder ----
             for item in list_chunk_computed:
                 chunk_name, obj = next(iter(item.items()))
-                out_json = chunk_json_dir / f"{lesson_stem}_{chunk_name}.json"
+                start = int(obj.get("start", 1))
+                end = int(obj.get("end", start))
+
+                chunk_dir = lesson_chunk_dir / chunk_name
+                chunk_dir.mkdir(parents=True, exist_ok=True)
+
+                # cắt pdf cho đúng chunk này, output vào chunk_dir
+                paths = split_pdf_by_ranges(
+                    src_pdf=str(lesson_pdf),
+                    ranges=[(chunk_name, start, end)],
+                    out_dir=chunk_dir,
+                    pdf_stem=lesson_stem,
+                )
+
+                if not paths:
+                    continue
+
+                chunk_pdf_path = paths[0]
+                summary["chunk_pdf_files"].append(str(chunk_pdf_path))
+
+                # JSON cùng tên với PDF: file_name.pdf -> file_name.json
+                meta_path = chunk_pdf_path.with_suffix(".json")
 
                 payload = {
                     "source_lesson_pdf": str(lesson_pdf),
                     "lesson_stem": lesson_stem,
                     "chunk": chunk_name,
-                    "heading": obj.get("heading", ""),  # <-- thêm dòng này
+                    "chunk_pdf": str(chunk_pdf_path),
+                    "heading": obj.get("heading", ""),
                     "title": obj.get("title", ""),
-                    "start": obj.get("start"),
-                    "end": obj.get("end"),
+                    "start": start,
+                    "end": end,
                     "content_head": obj.get("content_head"),
                     "total_pages": total_pages,
                 }
 
-                out_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-                summary["chunk_json_files"].append(str(out_json))
+                meta_path.write_text(
+                    json.dumps(payload, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+
+                # nếu bạn vẫn dùng key này
+                summary["chunk_meta_files"].append(str(meta_path))
+                # tạo file keywords rỗng để sau này fill
+                kw_path = chunk_pdf_path.with_suffix(".keywords.json")
+                if not kw_path.exists():
+                    kw_path.write_text(json.dumps({"keywords": []}, ensure_ascii=False, indent=2), encoding="utf-8")
 
         except Exception as e:
             summary["skipped_lessons"].append({"lesson": str(lesson_pdf), "reason": str(e)})

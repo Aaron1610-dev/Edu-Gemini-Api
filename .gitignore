@@ -4,6 +4,8 @@
 # output artifacts
 Output/
 
+Input
+
 # secrets
 config.env
 
@@ -20,3 +22,7 @@ __pycache__/
 
 # IDE (PyCharm/IntelliJ)
 .idea/
+
+# Kaggle
+kaggle_pack.zip
+kaggle_pack

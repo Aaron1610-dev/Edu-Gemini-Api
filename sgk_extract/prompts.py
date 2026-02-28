@@ -1,6 +1,6 @@
 # sgk_extract/prompts.py
 def build_topic_lesson_prompt() -> str:
-    return r"""
+    return """
 Bạn là một chương trình trích xuất cấu trúc từ SGK PDF.
 
 MỤC TIÊU:
