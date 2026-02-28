@@ -5,7 +5,7 @@ from sgk_extract.les_top_pipeline import run_extract_save_split
 
 def main():
     key_manager = get_key_manager("config.env")
-    pdf_path = "./Input/Tin-hoc-10-ket-noi-tri-thuc.pdf"
+    pdf_path = "./Input/Tin-hoc-12-ket-noi-tri-thuc.pdf"
 
     data, json_path, split_result = run_extract_save_split(
         key_manager,

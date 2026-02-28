@@ -36,8 +36,7 @@ def _should_rotate(err: ClientError) -> bool:
     status = getattr(err, "status_code", None)
     msg = str(err).lower()
 
-    # hay gặp khi hết quota / rate limit / key lỗi
-    if status in (401, 403, 429):
+    if status in (400, 401, 403, 429):   # ✅ thêm 400 để test
         return True
 
     keywords = ["resource_exhausted", "quota", "rate", "limit", "exceeded", "too many requests"]
@@ -86,14 +85,21 @@ def extract_structure_from_pdf(
 
         except ClientError as e:
             last_err = e
-            print(f"[KeyRotation] Key#{key_idx+1}/{n} error: {getattr(e, 'status_code', '')} {str(e)[:120]}")
+            print(f"[KeyRotation] Key#{key_idx+1}/{n} error:", getattr(e, "status_code", None), str(e))
+
+            # ✅ in chi tiết payload lỗi (nếu có)
+            try:
+                import json as _json
+                detail = getattr(e, "response_json", None)
+                if detail:
+                    print("[GeminiErrorDetail]\n", _json.dumps(detail, ensure_ascii=False, indent=2))
+            except Exception:
+                pass
 
             if _should_rotate(e):
-                continue  # thử key kế tiếp
-
-            # lỗi kiểu PDF hỏng "The document has no pages." => đổi key không giúp => dừng
+                continue
             raise
-
+        
         except json.JSONDecodeError as e:
             snippet = (raw[:500] + "..." if len(raw) > 500 else raw)
             raise RuntimeError(f"Gemini trả về không phải JSON hợp lệ. Snippet:\n{snippet}") from e

@@ -126,7 +126,7 @@ def run_extract_and_split_chunks_for_book(
     if not lesson_dir.exists():
         raise RuntimeError(f"Không thấy thư mục Lesson: {lesson_dir}")
 
-    lesson_pdfs = sorted(lesson_dir.glob("*.pdf"))
+    lesson_pdfs = sorted(lesson_dir.rglob("*.pdf"))
     if not lesson_pdfs:
         raise RuntimeError(f"Không có file PDF nào trong: {lesson_dir}")
 

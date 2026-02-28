@@ -51,7 +51,7 @@ def _push_kaggle_dataset(book_stem: str):
 def main():
     key_manager = get_key_manager("config.env")
 
-    book_stem = "Tin-hoc-11-ket-noi-tri-thuc"
+    book_stem = "Tin-hoc-12-ket-noi-tri-thuc"
     book_dir = Path("Output") / book_stem
 
     summary = run_extract_and_split_chunks_for_book(

@@ -62,14 +62,15 @@ YÊU CẦU OUTPUT:
 FORMAT:
 {
   "list_topic": [
-    {"topic_01": {"start": 9, "end": 30}},
-    {"topic_02": {"start": 31, "end": 55}}
+    {"topic_01": {"start": 9, "end": 30, "heading": "Chủ đề 1.", "title": "..." }},
+    {"topic_02": {"start": 31, "end": 55, "heading": "Chủ đề 2.", "title": "..." }}
   ],
   "list_lesson": [
-    {"lesson_01": {"start": 9, "end": 13}},
-    {"lesson_02": {"start": 14, "end": 18}}
+    {"lesson_01": {"start": 9, "end": 13, "heading": "Bài 1.", "title": "..." }},
+    {"lesson_02": {"start": 14, "end": 18, "heading": "Bài 2.", "title": "..." }}
   ]
 }
+
 """
 
 def build_chunk_prompt_start_head(total_pages: int) -> str:
