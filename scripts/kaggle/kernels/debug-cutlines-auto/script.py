@@ -139,6 +139,15 @@ else:
     unzip(out_zip, WORK)
     unzip(code_zip, WORK)
 
+# ✅ copy marker book_stem.txt into WORK (zip-mode thường bị thiếu)
+marker_src = ds_base / "book_stem.txt"
+marker_dst = WORK / "book_stem.txt"
+if marker_src.exists():
+    shutil.copy2(marker_src, marker_dst)
+    print("Copied book_stem.txt:", marker_src, "->", marker_dst)
+else:
+    print("[WARN] Missing book_stem.txt at:", marker_src)
+
 print("WORK tree (top):")
 subprocess.run(f"find '{WORK}' -maxdepth 3 -type d | head -n 80", shell=True)
 
@@ -156,23 +165,39 @@ cp.FORCE_REPROCESS = os.getenv("FORCE_REPROCESS", "0") == "1"
 print("FORCE_REPROCESS =", cp.FORCE_REPROCESS)
 
 # ✅ book_stem lấy từ dataset marker nếu có (support cả nested kaggle_pack/)
-cands = [
-    WORK / "book_stem.txt",
-    WORK / "kaggle_pack" / "book_stem.txt",
-]
-
+# ✅ book_stem: ưu tiên marker, fallback auto-detect từ WORK/Output
 book_stem = None
-for p in cands:
-    if p.exists():
-        book_stem = p.read_text(encoding="utf-8").strip()
-        print("BOOK_STEM loaded from:", p)
-        break
 
+# 1) ưu tiên marker ở WORK (đã copy ở bước (3))
+p = WORK / "book_stem.txt"
+if p.exists():
+    book_stem = p.read_text(encoding="utf-8").strip()
+    print("BOOK_STEM loaded from:", p)
+
+# 2) fallback: auto-detect nếu Output chỉ có 1 folder book
+if not book_stem:
+    out_dir = WORK / "Output"
+    if out_dir.exists():
+        cands = [d.name for d in out_dir.iterdir() if d.is_dir()]
+        if len(cands) == 1:
+            book_stem = cands[0]
+            print("BOOK_STEM auto-detected =", book_stem)
+        elif len(cands) > 1:
+            # nhiều book => lấy theo env nếu có, không thì lấy first (có warn)
+            env_bs = os.getenv("BOOK_STEM", "").strip()
+            if env_bs and (out_dir / env_bs).is_dir():
+                book_stem = env_bs
+                print("BOOK_STEM from env =", book_stem)
+            else:
+                book_stem = sorted(cands)[0]
+                print("[WARN] Multiple books found, pick first:", book_stem, "cands=", cands)
+
+# 3) fallback cuối cùng (giữ tương thích)
 if not book_stem:
     book_stem = os.getenv("BOOK_STEM", "").strip() or "Tin-hoc-10-ket-noi-tri-thuc"
-    print("BOOK_STEM fallback =", book_stem)
-else:
-    print("BOOK_STEM =", book_stem)
+    print("[WARN] BOOK_STEM fallback =", book_stem)
+
+print("BOOK_STEM =", book_stem)
 
 book_dir = WORK / "Output" / book_stem
 chunk_root = book_dir / "Chunk"
